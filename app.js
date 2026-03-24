@@ -415,7 +415,12 @@ window.openHouseManage = function (houseId) {
             </tr>
             ${members.map(m => `
             <tr>
-                <td><strong>#${m.serialNo}</strong> ${m.name}</td>
+                <td>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span><strong>#${m.serialNo}</strong> ${m.name}</span>
+                        <button class="btn btn-outline" style="padding:2px 6px; font-size:0.75em;" onclick="openVoterModal(${m.serialNo})">✏️</button>
+                    </div>
+                </td>
                 <td style="min-width: 160px;">
                     <select id="qh-rel-${m.serialNo}" class="form-control" onchange="handleReligionChange('qh-rel-${m.serialNo}', 'qh-comm-${m.serialNo}')" style="margin-bottom:5px;">
                         ${RELIGION_OPTS.map(opt => `<option value="${opt}" ${(m.religion || 'Unknown') === opt ? 'selected' : ''}>${opt}</option>`).join('')}
@@ -548,7 +553,7 @@ window.searchHouseVoter = function () {
                 <small>${voter.houseName || 'No original house record'}</small>
             </div>
             <div style="display:flex; flex-direction:column; gap:5px;">
-                <button class="btn btn-outline" style="padding:4px 8px; font-size:0.85em; background:white;" onclick="document.getElementById('voter-modal').style.zIndex=2000; openVoterModal(${voter.serialNo})">✏️ Edit</button>
+                <button class="btn btn-outline" style="padding:4px 8px; font-size:0.85em; background:white;" onclick="document.getElementById('voter-modal').style.zIndex=9999; openVoterModal(${voter.serialNo})">✏️ Edit</button>
                 <button class="btn btn-success" style="padding:4px 8px; font-size:0.85em;" onclick="addPendingVoter()">Add to List</button>
             </div>
         </div>
@@ -585,7 +590,7 @@ function renderPendingHouseMembers() {
     container.innerHTML = pendingHouseMembers.map(m => `
         <div style="display:inline-block; background:var(--bg-color); border:1px solid var(--border); padding:5px 10px; border-radius:20px; margin:5px; font-size:0.9em;">
             #${m.serialNo} ${m.name || 'Unknown'} 
-            <span style="cursor:pointer; margin-left:5px; box-shadow:0 0 2px #ccc; padding:2px; border-radius:4px;" onclick="document.getElementById('voter-modal').style.zIndex=2000; openVoterModal(${m.serialNo})">✏️</span>
+            <span style="cursor:pointer; margin-left:5px; box-shadow:0 0 2px #ccc; padding:2px; border-radius:4px;" onclick="document.getElementById('voter-modal').style.zIndex=9999; openVoterModal(${m.serialNo})">✏️</span>
             <span style="color:#ef4444; cursor:pointer; margin-left:5px; font-weight:bold;" onclick="removePendingVoter(${m.serialNo})">✕</span>
         </div>
     `).join('');
@@ -996,7 +1001,13 @@ function openVoterModal(serialNo) {
 function closeModal() {
     document.getElementById('voter-modal').classList.remove('flex');
     currentEditingVoterSerial = null;
-    route(currentRoute);
+
+    // If we were editing a voter from within the House Manage modal, refresh that modal too
+    if (currentEditingHouseId) {
+        openHouseManage(currentEditingHouseId);
+    } else {
+        route(currentRoute);
+    }
 }
 
 async function saveVoterDetails() {
