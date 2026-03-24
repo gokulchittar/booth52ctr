@@ -245,7 +245,7 @@ function renderDashboard() {
                 <h2 style="font-size: 1.5em; margin-top:15px;">${males} / ${females}</h2>
             </div>
             <div class="card" style="text-align:center;">
-                <h3 style="color:var(--text-muted)">Houses Built</h3>
+                <h3 style="color:var(--text-muted)">Houses</h3>
                 <h2 style="font-size: 2.5em; color: #f59e0b;">${houses.length}</h2>
             </div>
         </div>
@@ -543,8 +543,14 @@ window.searchHouseVoter = function () {
     pendingSearchResult = voter;
     resDiv.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; background:#e0f2fe; padding:10px; border-radius:6px; color:#0369a1;">
-            <div><strong>#${voter.serialNo} - ${voter.name || 'Unknown'}</strong><br><small>${voter.houseName || 'No original house record'}</small></div>
-            <button class="btn btn-success" onclick="addPendingVoter()">Add to List</button>
+            <div>
+                <strong>#${voter.serialNo} - ${voter.name || 'Unknown'}</strong><br>
+                <small>${voter.houseName || 'No original house record'}</small>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:5px;">
+                <button class="btn btn-outline" style="padding:4px 8px; font-size:0.85em; background:white;" onclick="document.getElementById('voter-modal').style.zIndex=2000; openVoterModal(${voter.serialNo})">✏️ Edit</button>
+                <button class="btn btn-success" style="padding:4px 8px; font-size:0.85em;" onclick="addPendingVoter()">Add to List</button>
+            </div>
         </div>
     `;
 }
@@ -579,6 +585,7 @@ function renderPendingHouseMembers() {
     container.innerHTML = pendingHouseMembers.map(m => `
         <div style="display:inline-block; background:var(--bg-color); border:1px solid var(--border); padding:5px 10px; border-radius:20px; margin:5px; font-size:0.9em;">
             #${m.serialNo} ${m.name || 'Unknown'} 
+            <span style="cursor:pointer; margin-left:5px; box-shadow:0 0 2px #ccc; padding:2px; border-radius:4px;" onclick="document.getElementById('voter-modal').style.zIndex=2000; openVoterModal(${m.serialNo})">✏️</span>
             <span style="color:#ef4444; cursor:pointer; margin-left:5px; font-weight:bold;" onclick="removePendingVoter(${m.serialNo})">✕</span>
         </div>
     `).join('');
@@ -927,11 +934,24 @@ function openVoterModal(serialNo) {
 
     const body = document.getElementById('modal-voter-body');
     body.innerHTML = `
-        <div style="margin-bottom: 15px; color: var(--text-muted); font-size: 0.9em;">
-            <strong>Guardian:</strong> ${voter.guardian} <br>
-            <strong>House:</strong> ${voter.houseName} <br>
+        <div style="margin-bottom:10px; font-size:0.9em; color:var(--text-muted);">
             <strong>ID:</strong> ${voter.voterId}
         </div>
+        <div class="form-group grid-cols-2" style="margin-bottom:10px;">
+            <div><label>Name</label><input type="text" id="modal-name" class="form-control" value="${voter.name || ''}"></div>
+            <div>
+                 <label>Age & Gender</label>
+                 <div style="display:flex; gap:5px;">
+                      <input type="number" id="modal-age" class="form-control" value="${voter.age || ''}" style="width:70px;">
+                      <input type="text" id="modal-gender" class="form-control" value="${voter.gender || ''}">
+                 </div>
+            </div>
+        </div>
+        <div class="form-group grid-cols-2" style="margin-bottom:15px;">
+            <div><label>Guardian</label><input type="text" id="modal-guardian" class="form-control" value="${voter.guardian || ''}"></div>
+            <div><label>Original House Name</label><input type="text" id="modal-houseName" class="form-control" value="${voter.houseName || ''}"></div>
+        </div>
+        <hr style="border:0; border-top:1px solid var(--border); margin:15px 0;">
         
         <div class="form-group grid-cols-2">
             <div>
@@ -983,6 +1003,11 @@ async function saveVoterDetails() {
     if (!currentEditingVoterSerial) return;
 
     const updates = {
+        name: document.getElementById('modal-name').value,
+        age: parseInt(document.getElementById('modal-age').value) || 0,
+        gender: document.getElementById('modal-gender').value,
+        guardian: document.getElementById('modal-guardian').value,
+        houseName: document.getElementById('modal-houseName').value,
         politics: document.getElementById('modal-politics').value,
         location: document.getElementById('modal-location').value,
         remarks: document.getElementById('modal-remarks').value,
@@ -992,6 +1017,18 @@ async function saveVoterDetails() {
     };
 
     await rtdb.ref(`voters/${currentEditingVoterSerial}`).update(updates);
+
+    // We manually update local state to reflect UI changes across components if sync is slow
+    const voter = voters.find(v => v.serialNo === currentEditingVoterSerial);
+    if (voter) Object.assign(voter, updates);
+
+    // Auto-update pending house member names if edited mid-house-creation
+    const pendingMatch = pendingHouseMembers.find(m => m.serialNo === currentEditingVoterSerial);
+    if (pendingMatch) {
+        Object.assign(pendingMatch, updates);
+        renderPendingHouseMembers();
+    }
+
     closeModal();
 }
 
