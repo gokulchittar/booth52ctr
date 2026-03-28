@@ -170,10 +170,24 @@ function handleImportCSV() {
         skipEmptyLines: true,
         complete: async function (results) {
             try {
-                const updates = {};
-                results.data.forEach(row => {
+                const rows = results.data.filter(row => {
                     const serialNo = parseInt(row["ക്രമ നമ്പർ"]) || parseInt(row["Sl No"]) || 0;
-                    if (serialNo !== 0) {
+                    return serialNo !== 0;
+                });
+
+                if (rows.length === 0) {
+                    const headers = results.meta.fields || [];
+                    statusText.innerText = `No valid voters found. Check headers: ${headers.join(', ')}`;
+                    return;
+                }
+
+                // Batching: Process 200 rows at a time to prevent Firebase payload limits
+                const BATCH_SIZE = 200;
+                for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+                    const batch = rows.slice(i, i + BATCH_SIZE);
+                    const updates = {};
+                    batch.forEach(row => {
+                        const serialNo = parseInt(row["ക്രമ നമ്പർ"]) || parseInt(row["Sl No"]) || 0;
                         updates[`voters/${serialNo}`] = {
                             serialNo: serialNo,
                             name: row["പേര്"] || row["Name"] || "",
@@ -192,19 +206,19 @@ function handleImportCSV() {
                             religion: 'Unknown',
                             community: 'Unknown',
                             voteType: 'Normal',
-                            willVote: (row["ലിംഗം"] || row["Gender"] || "") !== "" ? true : true // Default for all new imports for now, or refine logic
+                            willVote: true
                         };
-                        // Refine willVote based on location if present in CSV, but standard CSV doesn't have it yet.
-                        // For this app, we assume everyone in Chittar will vote by default.
-                        updates[`voters/${serialNo}/willVote`] = true; 
-                    }
-                });
+                    });
+                    await rtdb.ref().update(updates);
+                    statusText.innerText = `Syncing... ${Math.min(i + BATCH_SIZE, rows.length)} / ${rows.length}`;
+                }
 
-                await rtdb.ref().update(updates);
-                statusText.innerText = `Successfully synced ${Object.keys(updates).length} voters to Cloud!`;
+                statusText.innerText = `Successfully synced ${rows.length} voters to Cloud!`;
+                fileInput.value = ''; // Reset input
             } catch (error) {
-                console.error(error);
-                statusText.innerText = "Error syncing data. Check console.";
+                console.error("Firebase Sync Error:", error);
+                statusText.innerText = `Sync Failed: ${error.message}`;
+                alert(`Sync Failed: ${error.message}\n\nPlease check your Firebase Rules or try again.`);
             }
         }
     });
@@ -252,8 +266,14 @@ function renderDashboard() {
         dashboard.innerHTML = `<h1>Dashboard</h1><div class="card"><p>No data. Go to Settings and import CSV.</p></div>`;
         return;
     }
-    const males = voters.filter(v => v.gender === 'പുരുഷൻ' || v.gender.toLowerCase() === 'm').length;
-    const females = voters.filter(v => v.gender === 'സ്ത്രീ' || v.gender.toLowerCase() === 'f').length;
+    const males = voters.filter(v => {
+        const g = (v.gender || '').toLowerCase();
+        return g === 'പുരുഷൻ' || g === 'm' || g === 'male';
+    }).length;
+    const females = voters.filter(v => {
+        const g = (v.gender || '').toLowerCase();
+        return g === 'സ്ത്രീ' || g === 'f' || g === 'female';
+    }).length;
 
     // Demographics
     const hindu = voters.filter(v => v.religion === 'Hindu');
@@ -532,7 +552,7 @@ window.openHouseManage = function (houseId) {
     if (!house) return;
     const members = voters.filter(v => v.houseId === houseId);
 
-    document.getElementById('house-edit-title').innerText = `Manage House: ${house.name}`;
+    document.getElementById('house-edit-name-input').value = house.name || '';
     
     // Set common Religion & Community based on first member or house data
     const firstMember = members[0] || {};
@@ -603,16 +623,26 @@ window.openHouseManage = function (houseId) {
 function closeHouseEditModal() {
     document.getElementById('house-edit-modal').classList.remove('flex');
     currentEditingHouseId = null;
-    route(currentRoute);
+    if (currentRoute === 'squads' && currentSquadForHouse) {
+        renderSquadDetails(currentSquadForHouse);
+    } else {
+        route(currentRoute);
+    }
 }
 
 window.saveHouseEdits = async function (houseId) {
     const members = voters.filter(v => v.houseId === houseId);
     const updates = {};
+    const newHouseName = document.getElementById('house-edit-name-input').value.trim();
+    if (newHouseName) {
+        updates[`houses/${houseId}/name`] = newHouseName;
+    }
+
     const commonRel = document.getElementById('common-house-rel').value;
     const commonComm = document.getElementById('common-house-comm').value;
 
     for (let m of members) {
+        if (newHouseName) updates[`voters/${m.serialNo}/houseName`] = newHouseName;
         updates[`voters/${m.serialNo}/politics`] = document.getElementById(`qh-pol-${m.serialNo}`).value;
         updates[`voters/${m.serialNo}/location`] = document.getElementById(`qh-loc-${m.serialNo}`).value;
         updates[`voters/${m.serialNo}/remarks`] = document.getElementById(`qh-rem-${m.serialNo}`).value;
